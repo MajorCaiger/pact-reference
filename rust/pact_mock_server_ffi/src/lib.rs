@@ -49,6 +49,7 @@ use std::ffi::CString;
 use std::panic::catch_unwind;
 use std::ptr::null_mut;
 use std::str;
+use std::str::FromStr;
 
 use bytes::Bytes;
 use chrono::Local;
@@ -109,6 +110,54 @@ pub unsafe extern fn init(log_env_var: *const c_char) {
   let env = env_logger::Env::new().filter(log_env_var);
   let mut builder = Builder::from_env(env);
   builder.try_init().unwrap_or(());
+}
+
+/// Log
+///
+/// * `log_level` - String. One of TRACE, DEBUG, INFO, WARN, ERROR
+/// * `message` - Message to log
+///
+/// Exported functions are inherently unsafe.
+#[no_mangle]
+pub unsafe extern fn log(log_level: *const c_char, message: *const c_char) {
+  let log_message = if !message.is_null() {
+    let c_str = CStr::from_ptr(message);
+    match c_str.to_str() {
+      Ok(str) => str,
+      Err(err) => {
+        warn!("Failed to parse the log message as a UTF-8 string: {}", err);
+        return
+      }
+    }
+  } else {
+    warn!("Failed to parse the log message as the message received was a null pointer");
+    return
+  };
+
+  let log_level = if !log_level.is_null() {
+    let c_str = CStr::from_ptr(log_level);
+    let level = match c_str.to_str() {
+      Ok(str) => str,
+      Err(err) => {
+        warn!("Failed to parse the log level as a UTF-8 string, defaulting to INFO: {}", err);
+        "INFO"
+      }
+    };
+    match log::Level::from_str(level) {
+      Ok(level) => level,
+      Err(_) => log::Level::Info
+    }
+  } else {
+    log::Level::Info
+  };
+
+  match log_level {
+    log::Level::Trace => log::trace!("{}", log_message),
+    log::Level::Debug => log::debug!("{}", log_message),
+    log::Level::Info => log::info!("{}", log_message),
+    log::Level::Warn => log::warn!("{}", log_message),
+    log::Level::Error => log::error!("{}", log_message),
+  }
 }
 
 /// External interface to create a mock server. A pointer to the pact JSON as a C string is passed in,
